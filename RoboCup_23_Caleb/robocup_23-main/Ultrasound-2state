@@ -1,0 +1,194 @@
+#include <Arduino.h>
+
+#include <stdint.h>
+#include "ultrasonic.hpp"
+
+#include <Servo.h>
+Servo driveL; 
+Servo driveR; 
+
+// #define WINDOW_SIZE 3
+// uint16_t INDEX = 0;
+// uint16_t SUM_LL = 0;
+// uint16_t SUM_LR = 0;
+// uint16_t SUM_HL = 0;
+// uint16_t SUM_HR = 0;
+// uint16_t READINGS_LL[WINDOW_SIZE];
+// uint16_t READINGS_LR[WINDOW_SIZE];
+// uint16_t READINGS_HL[WINDOW_SIZE];
+// uint16_t READINGS_HR[WINDOW_SIZE];
+
+enum states {
+  SEARCHING,
+  DETECTED
+};
+states state = SEARCHING;
+uint16_t detected_count = 0;
+
+void setup() {
+    Serial.println("Hi");    
+
+    // Initialise ultrasonic sensor counters
+    usCounterInit(); 
+    // Add ultrasonic sensors to array
+    usAddToArray(US_TRIG_0, US_ECHO_0, 0); 
+    usAddToArray(US_TRIG_1, US_ECHO_1, 1); 
+    usAddToArray(US_TRIG_2, US_ECHO_2, 2); 
+    usAddToArray(US_TRIG_3, US_ECHO_3, 3); 
+
+    driveL.attach(0);
+    driveR.attach(1); 
+
+    
+}
+
+
+void loop() {
+    static uint16_t distances[US_NUM]; 
+    uint16_t low_left,low_right,high_left,high_right;       //try move outside of everything (to top) !!!!!!!
+    uint16_t us_range = 500;
+    uint16_t min_seperation = 50;
+    // Ping array and wait
+    usPingArray(usArray, US_NUM); 
+    delay(100); //WAS 300 IN ORIGINAL CODE !!!!!!!
+
+    // Waited long enough, calculate the distances
+    usCalcArray(usArray, US_NUM, distances); 
+
+  
+    // SUM_LL = SUM_LL - READINGS_LL[INDEX];       // Remove the oldest entry from the sum         https://maker.pro/arduino/tutorial/how-to-clean-up-noisy-sensor-data-with-a-moving-average-filter       NOT USING MA FILTER RN!!!!!!
+    // READINGS_LL[INDEX] = distances[0];           // Add the newest reading to the window
+    // SUM_LL = SUM_LL + distances[0];                 // Add the newest reading to the sum
+    // low_left = SUM_LL / WINDOW_SIZE;  
+    // SUM_LR = SUM_LR - READINGS_LR[INDEX];       
+    // READINGS_LR[INDEX] = distances[1];           
+    // SUM_LR = SUM_LR + distances[1];                 
+    // low_right = SUM_LR / WINDOW_SIZE;     
+    // SUM_HL = SUM_HL - READINGS_HL[INDEX];       
+    // READINGS_HL[INDEX] = distances[2];           
+    // SUM_HL = SUM_HL + distances[2];                 
+    // high_left = SUM_HL / WINDOW_SIZE;  
+    // SUM_HR = SUM_HR - READINGS_HR[INDEX];       
+    // READINGS_HR[INDEX] = distances[3];           
+    // SUM_HR = SUM_HR + distances[3];                 
+    // high_right = SUM_HR / WINDOW_SIZE;  
+
+    // INDEX = (INDEX+1) % WINDOW_SIZE;   // Increment the index, and wrap to 0 if it exceeds the window size
+
+    for (int i = 0; i < US_NUM; ++i) {
+      if (distances[i] == 0) {
+        distances[i] = 1000;
+      }
+      if (i==0) {
+        Serial.printf("Low Left ");
+      } 
+      else if (i==1) {
+        Serial.printf("High Left ");
+      }
+      else if (i==2) {
+        Serial.printf("Low Right ");
+      }
+      else if (i==3) {
+        Serial.printf("High Right ");
+      }
+
+      Serial.printf("%d\t", distances[i]); 
+        
+    }
+    Serial.printf("\n");
+
+    low_left = distances[0];
+    high_left = distances[1];
+    low_right = distances[2];
+    high_right = distances[3];
+
+
+    if (state == SEARCHING) {
+      if (detected_count > 4) {
+        state = DETECTED;
+      }
+      if ((high_left < 80) || (high_right < 80)) {                                   //Something tall very close
+        detected_count = 0; 
+        Serial.print("reverse");
+        driveL.writeMicroseconds(1850); //reverse
+        driveR.writeMicroseconds(1150);
+        delay(1000);
+      } else if ((low_left < 80) && (low_right < 80)) {                                   //something low very close
+        detected_count = 0;  
+        Serial.print("turn right");
+        driveL.writeMicroseconds(1050); //pivot right
+        driveR.writeMicroseconds(1050);
+        delay(1000);
+      } else if ((high_left > 500 && high_right > 500 && low_left > 160 && low_left < 500 && low_right > 160 && low_right < 500) || (high_left < 500 && (high_left - low_left) >= 50 && low_left > 160 && high_right < 500 && (high_right - low_right) >= 50 && low_right > 160)) {              //weight detected by all sensors  
+        detected_count += 1;
+        driveL.writeMicroseconds(1150); //Forwards
+        driveR.writeMicroseconds(1850);
+      } else if ((high_left > 500 && low_left > 160 && low_left < 500) || (high_left < 500 && (high_left - low_left) >= 50 && low_left > 160)) {               //weight detected by left sensors  
+        detected_count += 1;
+        driveL.writeMicroseconds(1150); //Forwards
+        driveR.writeMicroseconds(1850);
+      } else if ((high_right > 500 && low_right > 160 && low_right < 500) || (high_right < 500 && (high_right - low_right) >= 50 && low_right > 160)) {            //weight detected by right sensors       
+        detected_count += 1;
+        driveL.writeMicroseconds(1150); //Forwards
+        driveR.writeMicroseconds(1850);
+      } else if (high_left < 500 && (high_left - low_left) < 50) {                          //tall obstruction detcted by left sensors
+        detected_count = 0;                         
+        Serial.print("turn left");
+        driveL.writeMicroseconds(1950); //pivot left
+        driveR.writeMicroseconds(1950);
+      } else if (high_right < 500 && (high_right - low_right) < 50) {                       //tall obstruction detcted by right sensors
+        detected_count = 0;                        
+        Serial.print("turn right");
+        driveL.writeMicroseconds(1050); //pivot right
+        driveR.writeMicroseconds(1050);
+      } else {                                                                              //clear ahead
+        detected_count = 0; 
+        driveL.writeMicroseconds(1150); //Forwards
+        driveR.writeMicroseconds(1850);
+      }
+    }
+
+    if (state == DETECTED) {
+      if ((high_left > 0 && high_left < 80) || (high_right > 0 && high_right < 80)) {                                   //Something tall very close
+        Serial.print("reverse");
+        driveL.writeMicroseconds(1850); //reverse
+        driveR.writeMicroseconds(1150);
+        delay(1000);
+      } else if ((low_left < 80) && (low_right < 80)) {                                   //something low very close
+        Serial.print("turn right");
+        driveL.writeMicroseconds(1050); //pivot right
+        driveR.writeMicroseconds(1050);
+        delay(1000);
+      } else if ((high_left > 500 && high_right > 500 && low_left > 160 && low_left < 500 && low_right > 160 && low_right < 500) || (high_left < 500 && (high_left - low_left) >= 50 && low_left > 160 && high_right < 500 && (high_right - low_right) >= 50 && low_right > 160)) {              //weight detected by all sensors  
+        driveL.writeMicroseconds(1150); //Forwards
+        driveR.writeMicroseconds(1850);
+      } else if ((high_left > 500 && low_left > 160 && low_left < 500) || (high_left < 500 && (high_left - low_left) >= 50 && low_left > 160)) {               //weight detected by left sensors  
+        Serial.print("turn right");
+        driveL.writeMicroseconds(1050); //pivot right
+        driveR.writeMicroseconds(1050);
+      } else if ((high_right > 500 && low_right > 160 && low_right < 500) || (high_right < 500 && (high_right - low_right) >= 50 && low_right > 160)) {            //weight detected by right sensors       
+        Serial.print("turn left");
+        driveL.writeMicroseconds(1950); //pivot left
+        driveR.writeMicroseconds(1950);
+      } else if (high_left < 500 && (high_left - low_left) < 50) {                          //tall obstruction detcted by left sensors
+        Serial.print("turn left");
+        driveL.writeMicroseconds(1950); //pivot left
+        driveR.writeMicroseconds(1950);
+      } else if (high_right < 500 && (high_right - low_right) < 50) {                       //tall obstruction detcted by right sensors
+        Serial.print("turn right");
+        driveL.writeMicroseconds(1050); //pivot right
+        driveR.writeMicroseconds(1050);
+      } else {                                                                              //clear ahead
+        driveL.writeMicroseconds(1150); //Forwards
+        driveR.writeMicroseconds(1850);
+      }
+       
+
+
+    }
+    Serial.printf("\n");
+
+
+}
+
+
