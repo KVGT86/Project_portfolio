@@ -1,0 +1,8 @@
+*.d
+*.o
+*.map
+*.bin
+*.json
+build/
+*.vscode
+*.bat
